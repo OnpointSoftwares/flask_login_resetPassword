@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, flash
 from flask_mail import Mail, Message
 from werkzeug.security import generate_password_hash, check_password_hash
-import mysql.connector
+import pymongo
 import secrets
 from itsdangerous import URLSafeTimedSerializer
 
@@ -9,14 +9,14 @@ app = Flask(__name__)
 secret_key = secrets.token_hex(32)
 app.secret_key = secret_key
 
-# MySQL Database Configuration
-app.config['MYSQL_HOST'] = 'localhost'
-app.config['MYSQL_USER'] = 'root'
-app.config['MYSQL_PASSWORD'] = ''
-app.config['MYSQL_DATABASE'] = 'students'
+# MongoDB Atlas Connection
+app.config['MONGO_URI'] = 'mongodb+srv://<username>:<password>@cluster0.mongodb.net/<database_name>?retryWrites=true&w=majority
+'
+client = pymongo.MongoClient(app.config['MONGO_URI'])
+db = client['students']
 
 # Flask-Mail Configuration
-app.config['MAIL_SERVER'] = 'smtp.gmail.com'  # Your SMTP server
+app.config['MAIL_SERVER'] = 'smtp.gmail.com'
 app.config['MAIL_PORT'] = 587
 app.config['MAIL_USERNAME'] = 'your-email@gmail.com'
 app.config['MAIL_PASSWORD'] = 'your-email-password'
@@ -25,15 +25,6 @@ app.config['MAIL_USE_TLS'] = True
 mail = Mail(app)
 s = URLSafeTimedSerializer(app.secret_key)
 
-# Initialize MySQL Connection
-def get_db_connection():
-    return mysql.connector.connect(
-        host=app.config['MYSQL_HOST'],
-        user=app.config['MYSQL_USER'],
-        password=app.config['MYSQL_PASSWORD'],
-        database=app.config['MYSQL_DATABASE']
-    )
-
 # Login Route
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -41,12 +32,7 @@ def login():
         email = request.form['email']
         password = request.form['password']
         
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
-        user = cursor.fetchone()
-        cursor.close()
-        conn.close()
+        user = db.users.find_one({"email": email})
         
         if user and check_password_hash(user['password'], password):
             flash('Login Successful!', 'success')
@@ -62,12 +48,7 @@ def reset_password():
     if request.method == 'POST':
         email = request.form['email']
         
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
-        user = cursor.fetchone()
-        cursor.close()
-        conn.close()
+        user = db.users.find_one({"email": email})
         
         if user:
             token = s.dumps(user['email'], salt='reset-password')
@@ -94,12 +75,7 @@ def reset_with_token(token):
         new_password = request.form['password']
         hashed_password = generate_password_hash(new_password)
         
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("UPDATE users SET password = %s WHERE email = %s", (hashed_password, email))
-        conn.commit()
-        cursor.close()
-        conn.close()
+        db.users.update_one({"email": email}, {"$set": {"password": hashed_password}})
         
         flash('Your password has been updated!', 'success')
         return redirect(url_for('login'))
